@@ -32,7 +32,7 @@ canvas.pack()
 # PLAYER
 # =========================
 
-player = {
+player ={
     "x": W//2,
     "y": H//2,
     "speed": 6,
@@ -47,12 +47,12 @@ player = {
     
     # --- TIRO LATERAL ---
     "side_unlocked": False,
-    "side_damage": 12,
+    "side_damage": 30,
     "side_cd": 1000,        # Recarga inicial (ms)
     
     # --- TIRO DIAGONAL ---
     "diag_unlocked": False,
-    "diag_damage": 10,
+    "diag_damage": 30,
     "diag_cd": 1000,        # Recarga inicial (ms)
 
     # --- OUTROS UPGRADES ---
@@ -66,14 +66,38 @@ player = {
     "crit_chance": 0.0,
     "freeze_unlocked": False,
     "xp_bonus": 0.0,
-    "thorns_damage": 0.0
+    "thorns_damage": 0.0,
+    # ===== FOGUETE =====
+    "rocket_unlocked": False,
+    "rocket_damage": 200,
+    "rocket_radius": 150,
+    "rocket_cd": 5000,
+
+    # ===== TEMPESTADE =====
+    "storm_unlocked": False,
+    "storm_damage": 70,
+    "storm_cd": 4000,
+    "storm_hits": 4,
+
+    # ===== TORRETAS =====
+    "orb_unlocked": False,
+    "orb_damage": 20,
+    "orb_cd": 1200,
+    "orb_count": 1,
+
 }
 
 enemies = []
 bullets = []
 traps = []
 keys = {}
+snowballs = []
+rockets = []
+explosions = []
 
+orbs = []
+
+effects = []
 paused = True
 game_started = False
 countdown = 5
@@ -89,16 +113,24 @@ boss_spawned_this_milestone = False
 enemy_types = [
     # ("ícone", vida, velocidade, tamanho, DANO_POR_FRAME)
     ("💀", 40, 4, 30, 2),  
-    ("👻", 30, 8, 30, 10),  
+    ("👻", 10, 7, 30, 1),  
     ("🧟", 100, 2, 30, 5), 
-    ("🕷️", 50, 6, 30, 2),  
+    ("🕷️", 50, 4, 30, 2),  
     ("🐺", 70, 5, 30, 2),  
+]
+
+enemy_types_LV39 = [
+    # ("ícone", vida, velocidade, tamanho, DANO_POR_FRAME)
+    ("🧜🏼‍♀️", 300, 4, 30, 5),  
+    ("⛄", 250, 4, 30, 5),  
+    ("🐸", 100, 2, 30, 5), 
+    ("🦖", 700, 3, 50, 10),  
 ]
 
 bosses = [
     # ("ícone", vida, velocidade, tamanho, DANO_POR_FRAME)
-    ("🐉", 1000, 10, 70, 25), 
-    ("👹", 1000, 2, 70, 50), 
+    ("🐉", 1000, 10, 100, 25), 
+    ("👹", 1000, 2, 100, 50), 
 ]
 
 
@@ -147,7 +179,7 @@ def start_countdown():
         canvas.create_text(
             W//2,
             H//2,
-            text="GO!",
+            text="SOBREVIVA !",
             fill="lime",
             font=("Arial", 80, "bold")
         )
@@ -189,7 +221,10 @@ def spawn_enemy():
     else:
         boss_spawned_this_milestone = False
         
-        e = random.choice(enemy_types)
+        if player["level"] >= 30:
+            e = random.choice(enemy_types + enemy_types_LV39)
+        else:
+            e = random.choice(enemy_types)
         enemies.append({
             "x": random.randint(0, W),
             "y": random.randint(0, H),
@@ -271,13 +306,36 @@ def shoot_red():
         })
 
     root.after(int(player["red_cd"]), shoot_red)
+def shoot_rocket():
 
+    if not paused and player["rocket_unlocked"] and enemies:
+
+        alvo = max(enemies, key=lambda e: e["hp"])
+
+        dx = alvo["x"] - player["x"]
+        dy = alvo["y"] - player["y"]
+
+        dist = math.sqrt(dx*dx + dy*dy) + 0.1
+
+        rockets.append({
+
+            "x": player["x"],
+            "y": player["y"],
+
+            "vx": dx/dist * 7,
+            "vy": dy/dist * 7,
+
+            "life": 350
+
+        })
+
+    root.after(player["rocket_cd"], shoot_rocket)
 # Iniciar loops de tiro independentes
 shoot_main()
 shoot_side()
 shoot_diag()
 shoot_red()
-
+shoot_rocket()
 
 # =========================
 # TRAPS
@@ -312,7 +370,7 @@ def level_up():
         ("🔮 Projéteis Gigantes (+2 Raio)", lambda: upgrade_bullet_size()),
         ("🎯 Acerto Crítico (+10% Chance de 2x Dano)", lambda: upgrade_crit()),
         ("❄️ Tiro Congelante (Deixa alvos lentos)", lambda: upgrade_freeze()),
-        
+        ("🚀 Lança-Foguetes", lambda: upgrade_rocket()),
         # --- Upgrades Utilitários e Defensivos ---
         ("🧲 Ímã de XP (+0.2 XP passivo extra)", lambda: upgrade_xp_magnet()),
         ("🛡️ Escudo de Espinhos (Contra-ataca ao tocar)", lambda: upgrade_thorns()),
@@ -360,7 +418,17 @@ def hp_up():
     player["hp"] += 40
 def speed_up(): player["speed"] += 1
 def vamp_up(): player["vampirism"] += 0.10
+def upgrade_rocket():
 
+    if not player["rocket_unlocked"]:
+
+        player["rocket_unlocked"] = True
+
+    else:
+
+        player["rocket_damage"] += 50
+        player["rocket_radius"] += 20
+        player["rocket_cd"] = int(player["rocket_cd"] * 0.85)
 def select_upgrade_by_index(index):
     global paused, current_options
     _, func = current_options[index]
@@ -433,6 +501,50 @@ def update():
             b["life"] -= 1
         bullets[:] = [b for b in bullets if b["life"] > 0]
 
+                # Atualiza Foguetes
+        # ==========================
+        # ATUALIZA FOGUETES
+        # ==========================
+
+        for r in rockets[:]:
+
+            r["x"] += r["vx"]
+            r["y"] += r["vy"]
+
+            r["life"] -= 1
+
+            if (
+                r["x"] < 0 or
+                r["x"] > W or
+                r["y"] < 0 or
+                r["y"] > H
+            ):
+
+                explosions.append({
+
+                    "x": r["x"],
+                    "y": r["y"],
+                    "life": 18,
+                    "radius": player["rocket_radius"]
+
+                })
+
+                rockets.remove(r)
+
+            elif r["life"] <= 0:
+
+                explosions.append({
+
+                    "x": r["x"],
+                    "y": r["y"],
+                    "life": 18,
+                    "radius": player["rocket_radius"]
+
+                })
+
+                rockets.remove(r)
+
+
         # Atualizar Armadilhas
         for t in traps:
             t["life"] -= 1
@@ -451,7 +563,7 @@ def update():
                     
                     # Sistema de Crítico
                     if random.random() < player["crit_chance"]:
-                        dmg *= 2
+                        dmg *= 2    
                     
                     e["hp"] -= dmg
                     b["life"] = 0
@@ -462,6 +574,45 @@ def update():
                     
                     if player["vampirism"] > 0:
                         player["hp"] = min(player["hp_max"], player["hp"] + dmg * player["vampirism"])
+
+        # ==========================
+        # COLISÃO DOS FOGUETES
+        # ==========================
+
+        for r in rockets[:]:
+
+            for e in enemies:
+
+                if (e["x"]-r["x"])**2 + (e["y"]-r["y"])**2 < 500:
+
+                    explosions.append({
+
+                        "x": r["x"],
+                        "y": r["y"],
+                        "life": 18,
+                        "radius": player["rocket_radius"]
+
+                    })
+
+                    for alvo in enemies:
+
+                        dist = math.sqrt(
+                            (alvo["x"]-r["x"])**2 +
+                            (alvo["y"]-r["y"])**2
+                        )
+
+                        if dist <= player["rocket_radius"]:
+
+                            alvo["hp"] -= player["rocket_damage"]
+
+                    if r in rockets:
+                        rockets.remove(r)
+
+                    break
+        for ex in explosions:
+            ex["life"] -= 1
+
+        explosions[:] = [e for e in explosions if e["life"] > 0]
 
         # Morte dos Inimigos
         dead = [e for e in enemies if e["hp"] <= 0]
@@ -544,6 +695,42 @@ def draw():
         r = b.get("r", 5) + bonus_r
         canvas.create_oval(b["x"]-r, b["y"]-r, b["x"]+r, b["y"]+r, fill=color, outline=color)
 
+    for r in rockets:
+
+        canvas.create_oval(
+            r["x"]-9,
+            r["y"]-9,
+            r["x"]+9,
+            r["y"]+9,
+            fill="#ff7f00",
+            outline="red",
+            width=2
+        )
+
+        canvas.create_oval(
+            r["x"]-4,
+            r["y"]-4,
+            r["x"]+4,
+            r["y"]+4,
+            fill="yellow",
+            outline=""
+        )
+
+    for ex in explosions:
+
+        r = ex["radius"] * (1 - ex["life"] / 18)
+
+        canvas.create_oval(
+
+            ex["x"]-r,
+            ex["y"]-r,
+
+            ex["x"]+r,
+            ex["y"]+r,
+
+            outline="orange",
+            width=4
+        )
     # Armadilhas
     for t in traps:
         canvas.create_rectangle(t["x"]-6, t["y"]-6, t["x"]+6, t["y"]+6, outline="cyan")
