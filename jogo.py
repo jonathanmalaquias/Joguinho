@@ -4,6 +4,8 @@ import math
 import subprocess
 import sys
 import os
+import chefes
+
 
 def voltar_menu():
     root.destroy()
@@ -101,7 +103,7 @@ effects = []
 paused = True
 game_started = False
 countdown = 5
-
+boss_ativo = False
 current_options = []
 boss_spawned_this_milestone = False
 
@@ -121,10 +123,10 @@ enemy_types = [
 
 enemy_types_LV39 = [
     # ("ícone", vida, velocidade, tamanho, DANO_POR_FRAME)
-    ("🧜🏼‍♀️", 300, 4, 30, 5),  
-    ("⛄", 250, 4, 30, 5),  
-    ("🐸", 100, 2, 30, 5), 
-    ("🦖", 700, 3, 50, 10),  
+    ("🧜🏼‍♀️", 700, 7, 45, 5),  
+    ("⛄", 900, 5, 45, 7),  
+    ("🐸", 500, 4, 45, 7), 
+    ("🦖", 1500, 3, 50, 10),  
 ]
 
 bosses = [
@@ -197,27 +199,23 @@ def begin_game():
 # =========================
 
 def spawn_enemy():
-    global boss_spawned_this_milestone
+    global boss_spawned_this_milestone, boss_ativo
     if paused:
         root.after(500, spawn_enemy)
         return
 
-    if player["level"] % 6 == 0:
+    # Se um boss já está vivo, impede o spawn de monstros comuns
+    if boss_ativo:
+        root.after(650, spawn_enemy)
+        return
+
+    # Chefes aparecem de 10 em 10 níveis
+    if player["level"] > 0 and player["level"] % 10 == 0:
         if not boss_spawned_this_milestone:
-            e = random.choice(bosses)
+            enemies.clear() # <--- MATA TODOS OS INIMIGOS DO MAPA IMEDIATAMENTE!
+            chefes.spawn_esqueleto_gigante(player, enemies, W, H)
             boss_spawned_this_milestone = True
-            
-            enemies.append({
-                "x": random.randint(0, W),
-                "y": random.randint(0, H),
-                "hp": e[1] + player["level"] * 10,
-                "base_speed": e[2],
-                "speed": e[2],
-                "icon": e[0],
-                "size": e[3],
-                "damage": e[4],
-                "is_boss": True
-            })
+            boss_ativo = True # Bloqueia novos spawns normais
     else:
         boss_spawned_this_milestone = False
         
@@ -478,18 +476,27 @@ def update():
 
         # IA dos Inimigos
         for e in enemies:
-            dx, dy = player["x"] - e["x"], player["y"] - e["y"]
-            dist = math.sqrt(dx*dx + dy*dy) + 0.1
+            # Injetamos temporariamente a lista para os braços saberem se a cabeça morreu
+            e["_lista_inimigos_atual"] = enemies 
 
-            if e["hp"] > 120: e["speed"] = e["base_speed"] * 0.6
-            elif e["hp"] > 60: e["speed"] = e["base_speed"]
-            else: e["speed"] = e["base_speed"] * 1.4
+            if e.get("is_boss") and "boss_type" in e:
+                # Usa a IA avançada do Terraria criada no outro arquivo
+                chefes.atualizar_esqueleto(e, player, W, H)
+                dist = math.sqrt((player["x"] - e["x"])**2 + (player["y"] - e["y"])**2) + 0.1
+            else:
+                # Lógica padrão para zumbis, fantasmas, etc.
+                dx, dy = player["x"] - e["x"], player["y"] - e["y"]
+                dist = math.sqrt(dx*dx + dy*dy) + 0.1
 
-            e["x"] += dx/dist * e["speed"]
-            e["y"] += dy/dist * e["speed"]
+                if e["hp"] > 120: e["speed"] = e["base_speed"] * 0.6
+                elif e["hp"] > 60: e["speed"] = e["base_speed"]
+                else: e["speed"] = e["base_speed"] * 1.4
 
-            # Dano recebido pelo player + Ativação dos Espinhos
-            if dist < 20: 
+                e["x"] += dx/dist * e["speed"]
+                e["y"] += dy/dist * e["speed"]
+
+            # Dano recebido pelo player + Ativação dos Espinhos (comum a todos)
+            if dist < (e.get("size", 30) / 2 + 10): # Ajuste de colisão baseado no tamanho do monstro
                 player["hp"] -= e["damage"]
                 if player["thorns_damage"] > 0:
                     e["hp"] -= player["thorns_damage"] * 0.1
@@ -615,9 +622,20 @@ def update():
         explosions[:] = [e for e in explosions if e["life"] > 0]
 
         # Morte dos Inimigos
+        # Morte dos Inimigos
+        global boss_ativo   
         dead = [e for e in enemies if e["hp"] <= 0]
         for d in dead:
             if d in enemies:
+                # Se for um braço morrendo, avisa a cabeça vinculada
+                if d.get("boss_type") == "skeletron_hand":
+                    if d["cabeca_vinculada"] in enemies:
+                        d["cabeca_vinculada"]["bracos_vivos"] -= 1
+                
+                # Se a cabeça do boss morreu, libera os spawns novamente
+                if d.get("boss_type") == "skeletron_head":
+                    boss_ativo = False
+
                 enemies.remove(d)
                 if player["trap_master"]: spawn_trap(d["x"], d["y"])
 
@@ -684,7 +702,7 @@ def draw():
     # Jogador
     canvas.create_oval(player["x"]-12, player["y"]-12, player["x"]+12, player["y"]+12, fill="white")
 
-    # Inimigos
+    # Inimigos (Normais e Partes do Chefe)
     for e in enemies:
         canvas.create_text(e["x"], e["y"], text=e["icon"], fill="white", font=("Arial", e["size"]))
 
@@ -695,52 +713,69 @@ def draw():
         r = b.get("r", 5) + bonus_r
         canvas.create_oval(b["x"]-r, b["y"]-r, b["x"]+r, b["y"]+r, fill=color, outline=color)
 
+    # Foguetes
     for r in rockets:
-
         canvas.create_oval(
-            r["x"]-9,
-            r["y"]-9,
-            r["x"]+9,
-            r["y"]+9,
-            fill="#ff7f00",
-            outline="red",
-            width=2
+            r["x"]-9, r["y"]-9, r["x"]+9, r["y"]+9,
+            fill="#ff7f00", outline="red", width=2
+        )
+        canvas.create_oval(
+            r["x"]-4, r["y"]-4, r["x"]+4, r["y"]+4,
+            fill="yellow", outline=""
         )
 
-        canvas.create_oval(
-            r["x"]-4,
-            r["y"]-4,
-            r["x"]+4,
-            r["y"]+4,
-            fill="yellow",
-            outline=""
-        )
-
+    # Explosões dos Foguetes
     for ex in explosions:
-
         r = ex["radius"] * (1 - ex["life"] / 18)
-
         canvas.create_oval(
-
-            ex["x"]-r,
-            ex["y"]-r,
-
-            ex["x"]+r,
-            ex["y"]+r,
-
-            outline="orange",
-            width=4
+            ex["x"]-r, ex["y"]-r, ex["x"]+r, ex["y"]+r,
+            outline="orange", width=4
         )
+
     # Armadilhas
     for t in traps:
         canvas.create_rectangle(t["x"]-6, t["y"]-6, t["x"]+6, t["y"]+6, outline="cyan")
 
-    # Interface de Texto
+    # Interface de Texto Base (Jogador)
     canvas.create_text(
         20, 20, anchor="nw", fill="white", font=("Arial", 14),
         text=f"HP {int(player['hp'])}/{player['hp_max']} | LVL {player['level']} | Vamp: {int(player['vampirism']*100)}%"
     )
 
+    # ====================================================
+    # INTERFACE: BARRA DE VIDA DO CHEFE (ESTILO TERRARIA)
+    # ====================================================
+    for e in enemies:
+        if e.get("boss_type") == "skeletron_head":
+            # Dimensões da barra (centralizada horizontalmente no topo)
+            largura_barra = W * 0.6  # Ocupa 60% da largura da tela
+            x_inicial = (W - largura_barra) // 2
+            y_inicial = 30
+            altura_barra = 20
+            
+            # Cálculo de proporção da vida atual
+            pct_vida = max(0.0, e["hp"] / e["hp_max"])
+            
+            # 1. Fundo Escuro (Contorno e fundo cinza)
+            canvas.create_rectangle(
+                x_inicial, y_inicial, 
+                x_inicial + largura_barra, y_inicial + altura_barra, 
+                fill="#222", outline="white", width=2
+            )
+            # 2. Preenchimento Vermelho (Vida restante)
+            if pct_vida > 0:
+                canvas.create_rectangle(
+                    x_inicial, y_inicial, 
+                    x_inicial + (largura_barra * pct_vida), y_inicial + altura_barra, 
+                    fill="red", outline=""
+                )
+            # 3. Texto com o Nome do Chefe
+            canvas.create_text(
+                W // 2, y_inicial - 12, 
+                text="ESQUELETO GIGANTE", fill="red", 
+                font=("Arial", 12, "bold")
+            )
+            break  # Encontrou a cabeça do chefe, pode parar o loop de busca
 
 # =========================
 # START
