@@ -2,4 +2,6 @@
 Joguinho
 
 
-jogo que fiz no SENAI
+jogo que fiz para passa tempo no SENAI
+
+é um rogue like, bem simples
