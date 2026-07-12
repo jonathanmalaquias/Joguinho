@@ -1,0 +1,21 @@
+{
+  "inicio": [
+    {"lado": "esquerda", "imagem": "imagens/jogador.png", "texto": "Hmn ? onde estou ? porque aqui é tão quente ? ."},
+    {"lado": "esquerda", "imagem": "imagens/jogador.png", "texto": "Como fui parar aqui ? oque são essas coisinhas ? ."}
+  ],
+  "boss_intro": [
+    {"lado": "direita", "imagem": "imagens/esqueleto n.png", "texto": "Mais um perdido é ? Nossa que novidade."},
+    {"lado": "esquerda", "imagem": "imagens/jogador.png", "texto": "Você sabe me dizer onde estou ?"},
+    {"lado": "direita", "imagem": "imagens/esqueleto n.png", "texto": "A única coisa que sei é que você não vai sair daqui vivo."},
+    {"lado": "esquerda", "imagem": "imagens/jogador.png", "texto": "Vamos ver se você é osso duro de roer."},
+    {"lado": "direita", "imagem": "imagens/esqueleto n.png", "texto": "Ha ha ha, ele tem senso de humor, vamos ver se vai rir depois disso."}
+  ],
+  "boss_derrota": [
+    {"lado": "direita", "imagem": "imagens/esqueleto n.png", "texto": "Não... isso não pode ser... agora eu vou ficar perdida aqui ! que saco ! "},
+    {"lado": "esquerda", "imagem": "imagens/jogador.png", "texto": "Então você também está perdida, esqueletinho?"},
+    {"lado": "direita", "imagem": "imagens/esqueleto n.png", "texto": "Sim, eu não sei como vim para aqui, não quero ficar sozinha."},
+    {"lado": "esquerda", "imagem": "imagens/jogador.png", "texto": "Relaxa, vou te levar comigo, quando como carne eu lambo até os ossos !."},
+    {"lado": "direita", "imagem": "imagens/esqueleto v.png", "texto": "COMO ASSIM ! DO QUE VOCÊ TÁ FALANDO !?"},
+    {"lado": "esquerda", "imagem": "imagens/jogador.png", "texto": "Vamos embora daqui."}
+  ]
+}

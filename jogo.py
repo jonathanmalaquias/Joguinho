@@ -5,7 +5,7 @@ import subprocess
 import sys
 import os
 import chefes
-
+import cutscene
 
 def voltar_menu():
     root.destroy()
@@ -44,7 +44,7 @@ player ={
     "level": 1,
 
     # --- ARMA INICIAL ---
-    "main_damage": 15,
+    "main_damage": 10,
     "main_cd": 500,        # Recarga inicial (ms)
     
     # --- TIRO LATERAL ---
@@ -89,6 +89,10 @@ player ={
 
 }
 
+esqueleto_derrotado = False
+robot_derrotado = False
+bee_derrotado = False
+
 enemies = []
 bullets = []
 traps = []
@@ -96,7 +100,7 @@ keys = {}
 snowballs = []
 rockets = []
 explosions = []
-
+frame_count = 0
 orbs = []
 
 effects = []
@@ -144,6 +148,12 @@ def down(e):
     key = e.keysym.lower()
     keys[key] = True
     
+    if e.keysym == "F1":
+        player["level"] += 1
+        level_up()
+
+        return
+
     if paused and current_options:
         if key == "1" and len(current_options) >= 1: select_upgrade_by_index(0)
         elif key == "2" and len(current_options) >= 2: select_upgrade_by_index(1)
@@ -187,8 +197,18 @@ def start_countdown():
         )
         root.after(700, begin_game)
 
+def mostrar_cutscene_inicio():
+    global paused
+    paused = True
+    falas = cutscene.carregar_cutscene("inicio")
+    cutscene.iniciar_dialogo(root, falas, on_finish=lambda: start_countdown())
 
 def begin_game():
+    global paused
+    canvas.delete("all")
+    paused = False
+
+def retomar_jogo():
     global paused
     canvas.delete("all")
     paused = False
@@ -199,25 +219,35 @@ def begin_game():
 # =========================
 
 def spawn_enemy():
-    global boss_spawned_this_milestone, boss_ativo
+    global boss_spawned_this_milestone, boss_ativo, esqueleto_derrotado, paused
+
     if paused:
         root.after(500, spawn_enemy)
         return
 
-    # Se um boss já está vivo, impede o spawn de monstros comuns
     if boss_ativo:
-        root.after(650, spawn_enemy)
+        root.after(500, spawn_enemy)
         return
 
     # Chefes aparecem de 10 em 10 níveis
     if player["level"] > 0 and player["level"] % 10 == 0:
         if not boss_spawned_this_milestone:
-            enemies.clear() # <--- MATA TODOS OS INIMIGOS DO MAPA IMEDIATAMENTE!
-            chefes.spawn_esqueleto_gigante(player, enemies, W, H)
-            boss_spawned_this_milestone = True
-            boss_ativo = True # Bloqueia novos spawns normais
+            enemies.clear()
+
+            # Só spawna se ainda não foi derrotado
+            if not esqueleto_derrotado:
+                chefes.spawn_esqueleto_gigante(player, enemies, W, H)
+                boss_spawned_this_milestone = True
+                boss_ativo = True
+
+                # Cutscene de introdução
+                paused = True
+                falas = cutscene.carregar_cutscene("boss_intro")
+                cutscene.iniciar_dialogo(root, falas, on_finish=lambda: retomar_jogo())
     else:
         boss_spawned_this_milestone = False
+        ...
+
         
         if player["level"] >= 30:
             e = random.choice(enemy_types + enemy_types_LV39)
@@ -462,7 +492,7 @@ def clear_buttons():
 # =========================
 
 def update():
-    global paused
+    global paused, esqueleto_derrotado
 
     if not paused:
         # Movimentação
@@ -622,22 +652,32 @@ def update():
         explosions[:] = [e for e in explosions if e["life"] > 0]
 
         # Morte dos Inimigos
-        # Morte dos Inimigos
-        global boss_ativo   
+        global boss_ativo
         dead = [e for e in enemies if e["hp"] <= 0]
         for d in dead:
             if d in enemies:
-                # Se for um braço morrendo, avisa a cabeça vinculada
-                if d.get("boss_type") == "skeletron_hand":
-                    if d["cabeca_vinculada"] in enemies:
-                        d["cabeca_vinculada"]["bracos_vivos"] -= 1
-                
-                # Se a cabeça do boss morreu, libera os spawns novamente
-                if d.get("boss_type") == "skeletron_head":
-                    boss_ativo = False
+                if d.get("is_boss"):
+                    # Boss não é removido direto, só entra em animação
+                    if d.get("state") not in ["DEATH_SEQUENCE", "DYING"]:
+                        d["state"] = "DEATH_SEQUENCE"
+                        d["state_timer"] = 0
+                    # Se o boss terminou a animação, libera o spawn normal
+                    if d.get("boss_finalizado"):
+                        boss_ativo = False
 
+                        # Cutscene de derrota só uma vez
+                        if not esqueleto_derrotado:
+                            paused = True
+                            falas = cutscene.carregar_cutscene("boss_derrota")
+                            cutscene.iniciar_dialogo(root, falas, on_finish=lambda: retomar_jogo())
+                            esqueleto_derrotado = True
+                    continue  # chefes.py cuida do resto
+
+                # Inimigos normais removidos direto
                 enemies.remove(d)
-                if player["trap_master"]: spawn_trap(d["x"], d["y"])
+                if player["trap_master"]:
+                    spawn_trap(d["x"], d["y"])
+
 
         # Sistema de Experiência com bônus de Ímã
         player["xp"] += 0.4 + player["xp_bonus"]
@@ -686,7 +726,8 @@ def update():
         )
 
         return
-    
+        # Remove bosses que terminaram a animação de morte
+    enemies[:] = [e for e in enemies if not e.get("remove_me")]
     draw()
     root.after(16, update)
 
@@ -696,6 +737,7 @@ def update():
 # =========================
 
 def draw():
+    global frame_count
     if paused: return
     canvas.delete("all")
 
@@ -704,7 +746,11 @@ def draw():
 
     # Inimigos (Normais e Partes do Chefe)
     for e in enemies:
-        canvas.create_text(e["x"], e["y"], text=e["icon"], fill="white", font=("Arial", e["size"]))
+        if e.get("is_boss"):
+            for icon, ex, ey, size in chefes.get_boss_visuals(e, frame_count):
+                canvas.create_text(ex, ey, text=icon, fill="white", font=("Arial", size))
+        else:
+            canvas.create_text(e["x"], e["y"], text=e["icon"], fill="white", font=("Arial", e["size"]))
 
     # Projéteis (com bônus de tamanho)
     for b in bullets:
@@ -781,6 +827,6 @@ def draw():
 # START
 # =========================
 
-start_countdown()
+mostrar_cutscene_inicio()
 update()
 root.mainloop()
